@@ -6,6 +6,7 @@ A Flask microservice for fetching and caching YouTube transcripts
 
 import os
 import json
+import time
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
 from transcript_fetcher import YouTubeTranscriptFetcher
@@ -35,6 +36,9 @@ def get_transcript(video_id):
         JSON response with transcript data or error message
     """
     try:
+        # Start timing the request
+        start_time = time.time()
+        
         # Validate video ID format
         if not video_id or len(video_id) != 11:
             return jsonify({
@@ -45,11 +49,13 @@ def get_transcript(video_id):
         # Check if we have cached data first
         cached_data = transcript_fetcher._load_from_cache(video_id)
         if cached_data is not None:
+            duration = round((time.time() - start_time) * 1000, 2)  # Convert to milliseconds
             return jsonify({
                 'video_id': video_id,
                 'transcript': cached_data,
                 'cached': True,
-                'message': 'Transcript retrieved from cache'
+                'message': 'Transcript retrieved from cache',
+                'retrieval_duration_ms': duration
             })
         
         # If no cache, try to fetch from YouTube
@@ -58,11 +64,13 @@ def get_transcript(video_id):
         
         transcript_data = transcript_fetcher.get_transcript(youtube_url)
         
+        duration = round((time.time() - start_time) * 1000, 2)  # Convert to milliseconds
         return jsonify({
             'video_id': video_id,
             'transcript': transcript_data,
             'cached': False,
-            'message': 'Transcript fetched from YouTube'
+            'message': 'Transcript fetched from YouTube',
+            'retrieval_duration_ms': duration
         })
         
     except ValueError as e:
