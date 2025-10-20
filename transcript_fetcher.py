@@ -140,7 +140,7 @@ class YouTubeTranscriptFetcher:
         
         try:
             # Wait for first successful result with timeout
-            result = result_queue.get(timeout=60)  # 60 second timeout
+            result = result_queue.get(timeout=15)  # 15 second timeout
             debug_print(f"DEBUG: SUCCESS! Concurrent request succeeded, stopping remaining {max_concurrent-1} attempts")
             return result
         except queue.Empty:
@@ -162,12 +162,7 @@ class YouTubeTranscriptFetcher:
         
         debug_print(f"DEBUG: Starting attempt {attempt_id} for video {video_id}")
         
-        try:
-            # Add small random delay to spread out requests
-            delay = random.uniform(0.1, 0.3)
-            debug_print(f"DEBUG: Attempt {attempt_id} waiting {delay:.2f}s before request...")
-            time.sleep(delay)
-            
+        try:           
             debug_print(f"DEBUG: Attempt {attempt_id} creating fresh API instance...")
             debug_print(f"DEBUG: Attempt {attempt_id} using Webshare username: {self.webshare_username}")
             
