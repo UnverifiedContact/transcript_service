@@ -1,0 +1,19 @@
+# Flask web framework
+Flask>=3.0.0
+
+# YouTube transcript dependencies
+youtube-transcript-api>=1.2.2
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Standard library dependencies (included with Python)
+# os - built-in  
+# json - built-in
+# re - built-in
+# time - built-in
+# datetime - built-in
+# concurrent.futures - built-in
+# threading - built-in
+# queue - built-in
+# urllib.parse - built-in
