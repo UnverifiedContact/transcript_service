@@ -54,7 +54,6 @@ def get_transcript(video_id):
                 'video_id': video_id,
                 'transcript': cached_data,
                 'cached': True,
-                'message': 'Transcript retrieved from cache',
                 'retrieval_duration_ms': duration
             })
         
@@ -69,7 +68,6 @@ def get_transcript(video_id):
             'video_id': video_id,
             'transcript': transcript_data,
             'cached': False,
-            'message': 'Transcript fetched from YouTube',
             'retrieval_duration_ms': duration
         })
         
