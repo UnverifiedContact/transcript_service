@@ -189,9 +189,7 @@ class YouTubeTranscriptFetcher:
     
     def _get_cache_path(self, video_id):
         """Get the cache file path for a video ID"""
-        video_cache_dir = os.path.join(self.cache_dir, video_id)
-        os.makedirs(video_cache_dir, exist_ok=True)
-        return os.path.join(video_cache_dir, 'transcript.json')
+        return os.path.join(self.cache_dir, f'{video_id}.json')
     
     def _save_to_cache(self, video_id, transcript_data):
         """Save transcript data to cache"""
@@ -221,8 +219,7 @@ class YouTubeTranscriptFetcher:
             return ""
         
         regex_pattern = re.compile(r'^\s*>>\s*')
-        cache_folder = os.path.join(self.cache_dir, video_id)
-        output_path = os.path.join(cache_folder, 'flattened.txt')
+        output_path = os.path.join(self.cache_dir, f'{video_id}_flattened.txt')
         
         flattened_lines = []
         for segment in transcript_data:
