@@ -48,36 +48,36 @@ class YouTubeTranscriptFetcher:
         if not video_id:
             raise ValueError(f"Could not extract video ID from URL: {url}")
         
-        debug_print("DEBUG: Checking cache...")
+        debug_print(f"DEBUG: [{video_id}] Checking cache...")
         cached_data = self._load_from_cache(video_id)
         if cached_data is not None:
-            debug_print("DEBUG: Found cached data, returning cached result")
+            debug_print(f"DEBUG: [{video_id}] Found cached data, returning cached result")
             return cached_data
-        debug_print("DEBUG: No cached data found, proceeding to fetch")
+        debug_print(f"DEBUG: [{video_id}] No cached data found, proceeding to fetch")
         
         # Try concurrent requests if using Webshare proxies, fallback to single request
-        debug_print(f"DEBUG: Webshare credentials available: {bool(self.webshare_username and self.webshare_password)}")
+        debug_print(f"DEBUG: [{video_id}] Webshare credentials available: {bool(self.webshare_username and self.webshare_password)}")
         if self.webshare_username and self.webshare_password:
-            debug_print("DEBUG: Using Webshare proxies, attempting concurrent requests")
+            debug_print(f"DEBUG: [{video_id}] Using Webshare proxies, attempting concurrent requests")
             try:
                 transcript_data = self._get_transcript_concurrent(video_id)
-                debug_print("DEBUG: Concurrent requests succeeded!")
+                debug_print(f"DEBUG: [{video_id}] Concurrent requests succeeded!")
             except Exception as e:
-                debug_print(f"DEBUG: Concurrent requests failed, trying single request: {e}")
+                debug_print(f"DEBUG: [{video_id}] Concurrent requests failed, trying single request: {e}")
                 try:
-                    debug_print("DEBUG: Attempting single request with Webshare proxies...")
+                    debug_print(f"DEBUG: [{video_id}] Attempting single request with Webshare proxies...")
                     transcript_data = self._get_transcript_single(video_id)
-                    debug_print("DEBUG: Single request with proxies succeeded!")
+                    debug_print(f"DEBUG: [{video_id}] Single request with proxies succeeded!")
                 except Exception as e2:
-                    debug_print(f"DEBUG: Single request with proxies failed: {e2}")
+                    debug_print(f"DEBUG: [{video_id}] Single request with proxies failed: {e2}")
                     raise ValueError("Failed to download subtitles for this video")
         else:
-            debug_print("DEBUG: No Webshare credentials, using single request without proxies")
+            debug_print(f"DEBUG: [{video_id}] No Webshare credentials, using single request without proxies")
             try:
                 transcript_data = self._get_transcript_single(video_id)
-                debug_print("DEBUG: Single request without proxies succeeded!")
+                debug_print(f"DEBUG: [{video_id}] Single request without proxies succeeded!")
             except Exception as e:
-                debug_print(f"DEBUG: Single request without proxies failed: {e}")
+                debug_print(f"DEBUG: [{video_id}] Single request without proxies failed: {e}")
                 raise ValueError("Failed to download subtitles for this video")
         
         transcript_data_dict = [{'text': entry.text, 'start': entry.start, 'duration': entry.duration} for entry in transcript_data]
@@ -122,13 +122,12 @@ class YouTubeTranscriptFetcher:
         else:
             api = YouTubeTranscriptApi()
         
-        debug_print(f"DEBUG: Using User-Agent: {headers['User-Agent'][:50]}...")
+        debug_print(f"DEBUG: [{video_id}] Using User-Agent: {headers['User-Agent'][:50]}...")
         return api.fetch(video_id, languages=['en'])
     
     def _get_transcript_concurrent(self, video_id, max_concurrent=2):
         """Try multiple concurrent requests to get transcript"""
-        debug_print(f"DEBUG: Starting concurrent requests with {max_concurrent} attempts")
-        debug_print(f"DEBUG: Video ID: {video_id}")
+        debug_print(f"DEBUG: [{video_id}] Starting concurrent requests with {max_concurrent} attempts")
         
         import threading
         import queue
@@ -140,20 +139,20 @@ class YouTubeTranscriptFetcher:
         def worker_thread(attempt_id):
             """Worker thread that runs a single attempt"""
             if stop_event.is_set():
-                debug_print(f"DEBUG: Attempt {attempt_id} cancelled before starting")
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} cancelled before starting")
                 return
                 
             try:
                 result = self._single_transcript_attempt(video_id, attempt_id)
                 if result is not None and not stop_event.is_set():
-                    debug_print(f"DEBUG: Attempt {attempt_id} SUCCESS! Got {len(result)} segments")
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS! Got {len(result)} segments")
                     result_queue.put(result)
                     stop_event.set()  # Signal other threads to stop
                 else:
-                    debug_print(f"DEBUG: Attempt {attempt_id} completed but result was None or cancelled")
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} completed but result was None or cancelled")
             except Exception as e:
                 if not stop_event.is_set():
-                    debug_print(f"DEBUG: Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
         
         # Start all worker threads
         threads = []
@@ -163,15 +162,15 @@ class YouTubeTranscriptFetcher:
             thread.start()
             threads.append(thread)
         
-        debug_print(f"DEBUG: Waiting for first successful result from {max_concurrent} requests...")
+        debug_print(f"DEBUG: [{video_id}] Waiting for first successful result from {max_concurrent} requests...")
         
         try:
             # Wait for first successful result with timeout
             result = result_queue.get(timeout=15)  # 15 second timeout
-            debug_print(f"DEBUG: SUCCESS! Concurrent request succeeded, stopping remaining {max_concurrent-1} attempts")
+            debug_print(f"DEBUG: [{video_id}] SUCCESS! Concurrent request succeeded, stopping remaining {max_concurrent-1} attempts")
             return result
         except queue.Empty:
-            debug_print(f"DEBUG: Timeout waiting for result from {max_concurrent} concurrent attempts")
+            debug_print(f"DEBUG: [{video_id}] Timeout waiting for result from {max_concurrent} concurrent attempts")
             raise ValueError("All concurrent attempts failed or timed out")
         finally:
             # Signal all threads to stop
@@ -187,19 +186,19 @@ class YouTubeTranscriptFetcher:
         import time
         import random
         
-        debug_print(f"DEBUG: Starting attempt {attempt_id} for video {video_id}")
+        debug_print(f"DEBUG: [{video_id}] Starting attempt {attempt_id}")
         
         # Add exponential backoff with jitter
         base_delay = 2 ** attempt_id  # 2, 4, 8 seconds
         jitter = random.uniform(0, 1)  # Add randomness
         delay = base_delay + jitter
         
-        debug_print(f"DEBUG: Attempt {attempt_id} waiting {delay:.2f}s before request...")
+        debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} waiting {delay:.2f}s before request...")
         time.sleep(delay)
         
         try:           
-            debug_print(f"DEBUG: Attempt {attempt_id} creating fresh API instance...")
-            debug_print(f"DEBUG: Attempt {attempt_id} using Webshare username: {self.webshare_username}")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} creating fresh API instance...")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using Webshare username: {self.webshare_username}")
             
             # User-agent rotation for each attempt
             user_agents = [
@@ -211,7 +210,7 @@ class YouTubeTranscriptFetcher:
             ]
             
             selected_ua = random.choice(user_agents)
-            debug_print(f"DEBUG: Attempt {attempt_id} using User-Agent: {selected_ua[:50]}...")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using User-Agent: {selected_ua[:50]}...")
             
             # Create fresh API instance for each attempt
             api = YouTubeTranscriptApi(
@@ -221,12 +220,12 @@ class YouTubeTranscriptFetcher:
                 )
             )
             
-            debug_print(f"DEBUG: Attempt {attempt_id} calling api.fetch()...")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} calling api.fetch()...")
             transcript_data = api.fetch(video_id, languages=['en'])
-            debug_print(f"DEBUG: Attempt {attempt_id} SUCCESS! Got {len(transcript_data)} segments")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS! Got {len(transcript_data)} segments")
             return transcript_data
         except Exception as e:
-            debug_print(f"DEBUG: Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
+            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
             return None
     
     def _get_cache_path(self, video_id):
