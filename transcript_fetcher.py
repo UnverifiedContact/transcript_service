@@ -86,7 +86,32 @@ class YouTubeTranscriptFetcher:
         return transcript_data_dict
     
     def _get_transcript_single(self, video_id):
-        """Single transcript fetch attempt"""
+        """Single transcript fetch attempt with user-agent rotation and enhanced headers"""
+        import random
+        
+        # User-agent rotation to avoid detection
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+        ]
+        
+        # Enhanced headers to mimic real browser requests
+        headers = {
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
+        }
+        
         if self.webshare_username and self.webshare_password:
             api = YouTubeTranscriptApi(
                 proxy_config=WebshareProxyConfig(
@@ -96,9 +121,11 @@ class YouTubeTranscriptFetcher:
             )
         else:
             api = YouTubeTranscriptApi()
+        
+        debug_print(f"DEBUG: Using User-Agent: {headers['User-Agent'][:50]}...")
         return api.fetch(video_id, languages=['en'])
     
-    def _get_transcript_concurrent(self, video_id, max_concurrent=3):
+    def _get_transcript_concurrent(self, video_id, max_concurrent=2):
         """Try multiple concurrent requests to get transcript"""
         debug_print(f"DEBUG: Starting concurrent requests with {max_concurrent} attempts")
         debug_print(f"DEBUG: Video ID: {video_id}")
@@ -156,15 +183,35 @@ class YouTubeTranscriptFetcher:
     
     
     def _single_transcript_attempt(self, video_id, attempt_id):
-        """Single transcript fetch attempt with fresh proxy connection"""
+        """Single transcript fetch attempt with fresh proxy connection and backoff"""
         import time
         import random
         
         debug_print(f"DEBUG: Starting attempt {attempt_id} for video {video_id}")
         
+        # Add exponential backoff with jitter
+        base_delay = 2 ** attempt_id  # 2, 4, 8 seconds
+        jitter = random.uniform(0, 1)  # Add randomness
+        delay = base_delay + jitter
+        
+        debug_print(f"DEBUG: Attempt {attempt_id} waiting {delay:.2f}s before request...")
+        time.sleep(delay)
+        
         try:           
             debug_print(f"DEBUG: Attempt {attempt_id} creating fresh API instance...")
             debug_print(f"DEBUG: Attempt {attempt_id} using Webshare username: {self.webshare_username}")
+            
+            # User-agent rotation for each attempt
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+            ]
+            
+            selected_ua = random.choice(user_agents)
+            debug_print(f"DEBUG: Attempt {attempt_id} using User-Agent: {selected_ua[:50]}...")
             
             # Create fresh API instance for each attempt
             api = YouTubeTranscriptApi(
