@@ -17,10 +17,17 @@ gunicorn \
     --workers "$GUNICORN_WORKERS" \
     --worker-class eventlet \
     --timeout 30 \
+    --keepalive 2 \
+    --backlog 2048 \
     --max-requests 500 \
     --max-requests-jitter 50 \
     --access-logfile - \
     --error-logfile - \
     --log-level "$GUNICORN_LOG_LEVEL" \
+    --proc-name youtube-transcript-service \
+    --access-log-format '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s' \
+    --limit-request-line 4094 \
+    --limit-request-fields 100 \
+    --limit-request-field-size 8190 \
     --preload \
     app:app
