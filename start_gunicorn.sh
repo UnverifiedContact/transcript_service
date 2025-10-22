@@ -17,12 +17,10 @@ gunicorn \
     --workers "$GUNICORN_WORKERS" \
     --worker-class eventlet \
     --timeout 30 \
-    --keepalive 2 \
     --max-requests 500 \
     --max-requests-jitter 50 \
     --access-logfile - \
     --error-logfile - \
     --log-level "$GUNICORN_LOG_LEVEL" \
-    --proc-name youtube-transcript-service \
-    --preload-app \
+    --preload \
     app:app
