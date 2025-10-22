@@ -8,10 +8,26 @@ import os
 import json
 import concurrent.futures
 import time
+import socket
 from datetime import datetime
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 from utils import extract_youtube_id
+
+# Fix DNS resolution for Termux
+def fix_dns_resolution():
+    """Fix DNS resolution issues in Termux"""
+    try:
+        # Set DNS servers explicitly
+        socket.setdefaulttimeout(30)
+        
+        # Test DNS resolution
+        socket.gethostbyname('www.youtube.com')
+        debug_print("DEBUG: DNS resolution test passed")
+        return True
+    except Exception as e:
+        debug_print(f"DEBUG: DNS resolution test failed: {e}")
+        return False
 
 def debug_print(message):
     """Print debug message with timestamp"""
@@ -27,6 +43,11 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: webshare_username passed: {webshare_username}")
         debug_print(f"DEBUG: webshare_password passed: {'***' if webshare_password else None}")
         debug_print(f"DEBUG: use_webshare passed: {use_webshare}")
+        
+        # Test DNS resolution first
+        debug_print("DEBUG: Testing DNS resolution...")
+        if not fix_dns_resolution():
+            debug_print("WARNING: DNS resolution test failed - this may cause issues")
         
         self.cache_dir = cache_dir
         self.use_webshare = use_webshare
@@ -127,6 +148,24 @@ class YouTubeTranscriptFetcher:
         }
         
         debug_print(f"DEBUG: [{video_id}] Using User-Agent: {headers['User-Agent'][:50]}...")
+        
+        # Test DNS resolution before attempting requests
+        debug_print(f"DEBUG: [{video_id}] Testing DNS resolution before request...")
+        try:
+            socket.gethostbyname('www.youtube.com')
+            debug_print(f"DEBUG: [{video_id}] DNS resolution test passed")
+        except Exception as dns_error:
+            debug_print(f"DEBUG: [{video_id}] DNS resolution test failed: {dns_error}")
+            debug_print(f"DEBUG: [{video_id}] Attempting to fix DNS resolution...")
+            
+            # Try to fix DNS resolution
+            try:
+                socket.setdefaulttimeout(30)
+                socket.gethostbyname('www.youtube.com')
+                debug_print(f"DEBUG: [{video_id}] DNS resolution fixed")
+            except Exception as fix_error:
+                debug_print(f"DEBUG: [{video_id}] DNS resolution fix failed: {fix_error}")
+                raise ValueError(f"DNS resolution failed: {fix_error}")
         
         # Try with proxy first, then fallback to direct connection
         if self.use_webshare:
