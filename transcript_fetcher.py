@@ -114,7 +114,13 @@ class YouTubeTranscriptFetcher:
                 debug_print(f"DEBUG: [{video_id}] Single request without proxies failed: {e}")
                 raise ValueError("Failed to download subtitles for this video")
         
-        transcript_data_dict = [{'text': entry.text, 'start': entry.start, 'duration': entry.duration} for entry in transcript_data]
+        # Handle both old format (list) and new format (FetchedTranscript object)
+        if hasattr(transcript_data, 'snippets'):
+            # New format: FetchedTranscript object with snippets attribute
+            transcript_data_dict = [{'text': snippet.text, 'start': snippet.start, 'duration': snippet.duration} for snippet in transcript_data.snippets]
+        else:
+            # Old format: list of transcript segments
+            transcript_data_dict = [{'text': entry.text, 'start': entry.start, 'duration': entry.duration} for entry in transcript_data]
         
         self._save_to_cache(video_id, transcript_data_dict)
         return transcript_data_dict
