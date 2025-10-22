@@ -261,19 +261,6 @@ class YouTubeTranscriptFetcher:
                 thread.join(timeout=1)
     
     
-    def _get_current_ip(self):
-        """Get the current external IP address for proxy verification"""
-        try:
-            import requests
-            response = requests.get('https://httpbin.org/ip', timeout=5)
-            return response.json().get('ip', 'unknown')
-        except:
-            try:
-                import requests
-                response = requests.get('https://api.ipify.org', timeout=5)
-                return response.text.strip()
-            except:
-                return 'unknown'
 
     def _single_transcript_attempt(self, video_id, attempt_id):
         """Single transcript fetch attempt with fresh proxy connection and backoff"""
@@ -316,16 +303,8 @@ class YouTubeTranscriptFetcher:
                     )
                 )
                 
-                # Get IP address to verify proxy rotation (optional)
-                try:
-                    current_ip = self._get_current_ip()
-                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
-                except:
-                    current_ip = "unknown"
-                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
-                
                 transcript_data = api.fetch(video_id, languages=['en'])
-                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with proxy IP {current_ip}! Got {len(transcript_data)} segments")
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with proxy! Got {len(transcript_data)} segments")
                 return transcript_data
             except Exception as proxy_error:
                 debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} proxy failed: {str(proxy_error)[:100]}...")
@@ -336,16 +315,8 @@ class YouTubeTranscriptFetcher:
                 
                 api = YouTubeTranscriptApi()
                 
-                # Get IP address for direct connection (optional)
-                try:
-                    current_ip = self._get_current_ip()
-                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
-                except:
-                    current_ip = "unknown"
-                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
-                
                 transcript_data = api.fetch(video_id, languages=['en'])
-                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with direct IP {current_ip}! Got {len(transcript_data)} segments")
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with direct connection! Got {len(transcript_data)} segments")
                 return transcript_data
                 
         except Exception as e:
