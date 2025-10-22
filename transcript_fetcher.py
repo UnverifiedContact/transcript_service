@@ -101,6 +101,7 @@ class YouTubeTranscriptFetcher:
     def _get_transcript_single(self, video_id):
         """Single transcript fetch attempt with user-agent rotation and enhanced headers"""
         import random
+        import time
         
         # User-agent rotation to avoid detection
         user_agents = [
@@ -125,18 +126,39 @@ class YouTubeTranscriptFetcher:
             'Cache-Control': 'max-age=0'
         }
         
+        debug_print(f"DEBUG: [{video_id}] Using User-Agent: {headers['User-Agent'][:50]}...")
+        
+        # Try with proxy first, then fallback to direct connection
         if self.use_webshare:
-            api = YouTubeTranscriptApi(
-                proxy_config=WebshareProxyConfig(
-                    proxy_username=self.webshare_username,
-                    proxy_password=self.webshare_password
+            try:
+                debug_print(f"DEBUG: [{video_id}] Attempting with Webshare proxy...")
+                api = YouTubeTranscriptApi(
+                    proxy_config=WebshareProxyConfig(
+                        proxy_username=self.webshare_username,
+                        proxy_password=self.webshare_password
+                    )
                 )
-            )
+                result = api.fetch(video_id, languages=['en'])
+                debug_print(f"DEBUG: [{video_id}] Proxy request succeeded!")
+                return result
+            except Exception as proxy_error:
+                debug_print(f"DEBUG: [{video_id}] Proxy request failed: {proxy_error}")
+                debug_print(f"DEBUG: [{video_id}] Falling back to direct connection...")
+                
+                # Add a small delay before retry
+                time.sleep(1)
+                
+                try:
+                    api = YouTubeTranscriptApi()
+                    result = api.fetch(video_id, languages=['en'])
+                    debug_print(f"DEBUG: [{video_id}] Direct connection succeeded!")
+                    return result
+                except Exception as direct_error:
+                    debug_print(f"DEBUG: [{video_id}] Direct connection also failed: {direct_error}")
+                    raise direct_error
         else:
             api = YouTubeTranscriptApi()
-        
-        debug_print(f"DEBUG: [{video_id}] Using User-Agent: {headers['User-Agent'][:50]}...")
-        return api.fetch(video_id, languages=['en'])
+            return api.fetch(video_id, languages=['en'])
     
     def _get_transcript_concurrent(self, video_id, max_concurrent=2):
         """Try multiple concurrent requests to get transcript"""
@@ -194,6 +216,20 @@ class YouTubeTranscriptFetcher:
                 thread.join(timeout=1)
     
     
+    def _get_current_ip(self):
+        """Get the current external IP address for proxy verification"""
+        try:
+            import requests
+            response = requests.get('https://httpbin.org/ip', timeout=5)
+            return response.json().get('ip', 'unknown')
+        except:
+            try:
+                import requests
+                response = requests.get('https://api.ipify.org', timeout=5)
+                return response.text.strip()
+            except:
+                return 'unknown'
+
     def _single_transcript_attempt(self, video_id, attempt_id):
         """Single transcript fetch attempt with fresh proxy connection and backoff"""
         import time
@@ -225,18 +261,40 @@ class YouTubeTranscriptFetcher:
             selected_ua = random.choice(user_agents)
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using User-Agent: {selected_ua[:50]}...")
             
-            # Create fresh API instance for each attempt
-            api = YouTubeTranscriptApi(
-                proxy_config=WebshareProxyConfig(
-                    proxy_username=self.webshare_username,
-                    proxy_password=self.webshare_password
+            # Try with proxy first, then fallback to direct connection
+            try:
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} trying with Webshare proxy...")
+                api = YouTubeTranscriptApi(
+                    proxy_config=WebshareProxyConfig(
+                        proxy_username=self.webshare_username,
+                        proxy_password=self.webshare_password
+                    )
                 )
-            )
-            
-            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} calling api.fetch()...")
-            transcript_data = api.fetch(video_id, languages=['en'])
-            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS! Got {len(transcript_data)} segments")
-            return transcript_data
+                
+                # Get IP address to verify proxy rotation
+                current_ip = self._get_current_ip()
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
+                
+                transcript_data = api.fetch(video_id, languages=['en'])
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with proxy IP {current_ip}! Got {len(transcript_data)} segments")
+                return transcript_data
+            except Exception as proxy_error:
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} proxy failed: {str(proxy_error)[:100]}...")
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} falling back to direct connection...")
+                
+                # Add a small delay before retry
+                time.sleep(0.5)
+                
+                api = YouTubeTranscriptApi()
+                
+                # Get IP address for direct connection
+                current_ip = self._get_current_ip()
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
+                
+                transcript_data = api.fetch(video_id, languages=['en'])
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with direct IP {current_ip}! Got {len(transcript_data)} segments")
+                return transcript_data
+                
         except Exception as e:
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
             return None
