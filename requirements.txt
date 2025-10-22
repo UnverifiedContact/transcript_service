@@ -10,8 +10,8 @@ python-dotenv>=1.0.0
 # Production WSGI server
 gunicorn>=21.0.0
 
-# Async worker support for mobile optimization
-eventlet>=0.33.0
+# Thread-based concurrency (no eventlet monkey patching)
+# eventlet>=0.33.0  # Removed - causes DNS issues in Termux
 
 # Standard library dependencies (included with Python)
 # os - built-in  

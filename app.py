@@ -4,9 +4,7 @@ YouTube Transcript Service
 A Flask microservice for fetching and caching YouTube transcripts
 """
 
-# Selective eventlet monkey patching - avoid os module conflicts
-import eventlet
-eventlet.monkey_patch(socket=True, select=True, thread=True)
+# Eventlet removed - using Gunicorn with thread workers for concurrency
 
 import os
 import json
