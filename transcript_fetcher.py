@@ -316,9 +316,13 @@ class YouTubeTranscriptFetcher:
                     )
                 )
                 
-                # Get IP address to verify proxy rotation
-                current_ip = self._get_current_ip()
-                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
+                # Get IP address to verify proxy rotation (optional)
+                try:
+                    current_ip = self._get_current_ip()
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
+                except:
+                    current_ip = "unknown"
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using proxy IP: {current_ip}")
                 
                 transcript_data = api.fetch(video_id, languages=['en'])
                 debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with proxy IP {current_ip}! Got {len(transcript_data)} segments")
@@ -332,9 +336,13 @@ class YouTubeTranscriptFetcher:
                 
                 api = YouTubeTranscriptApi()
                 
-                # Get IP address for direct connection
-                current_ip = self._get_current_ip()
-                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
+                # Get IP address for direct connection (optional)
+                try:
+                    current_ip = self._get_current_ip()
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
+                except:
+                    current_ip = "unknown"
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using direct IP: {current_ip}")
                 
                 transcript_data = api.fetch(video_id, languages=['en'])
                 debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with direct IP {current_ip}! Got {len(transcript_data)} segments")
