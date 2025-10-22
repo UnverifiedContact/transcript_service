@@ -15,8 +15,7 @@ export GUNICORN_RELOAD=${GUNICORN_RELOAD:-"0"}
 gunicorn \
     --bind "$HOST:$PORT" \
     --workers "$GUNICORN_WORKERS" \
-    --threads 2 \
-    --worker-class gevent \
+    --worker-class eventlet \
     --timeout 30 \
     --keepalive 2 \
     --max-requests 500 \

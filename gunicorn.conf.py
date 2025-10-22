@@ -17,8 +17,7 @@ backlog = 2048
 
 # Worker processes - optimized for Helio G99 mobile deployment
 workers = int(os.getenv('GUNICORN_WORKERS', 4))  # Conservative for mobile: 4 workers
-worker_class = "gevent"  # Async workers for better mobile performance
-threads = 2  # 2 threads per worker for I/O-bound tasks
+worker_class = "eventlet"  # Async workers for better mobile performance
 worker_connections = 1000
 timeout = 30
 keepalive = 2

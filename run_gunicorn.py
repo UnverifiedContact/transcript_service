@@ -37,8 +37,7 @@ def get_gunicorn_command():
         'gunicorn',
         '--bind', f'{host}:{port}',
         '--workers', workers,
-        '--threads', '2',  # 2 threads per worker for I/O-bound tasks
-        '--worker-class', 'gevent',  # Async workers for better mobile performance
+        '--worker-class', 'eventlet',  # Async workers for better mobile performance
         '--timeout', '30',
         '--keepalive', '2',
         '--max-requests', '500',  # Lower for mobile memory management
@@ -73,8 +72,8 @@ def main():
     print(f"Configuration (Helio G99 Mobile Optimized):")
     print(f"  Host: {os.getenv('HOST', '0.0.0.0')}")
     print(f"  Port: {os.getenv('PORT', '5485')}")
-    print(f"  Workers: {os.getenv('GUNICORN_WORKERS', '4')} (with 2 threads each)")
-    print(f"  Worker Class: gevent (async)")
+    print(f"  Workers: {os.getenv('GUNICORN_WORKERS', '4')}")
+    print(f"  Worker Class: eventlet (async)")
     print(f"  Reload: {os.getenv('GUNICORN_RELOAD', 'False')}")
     print(f"  Log Level: {os.getenv('GUNICORN_LOG_LEVEL', 'info')}")
     print()
