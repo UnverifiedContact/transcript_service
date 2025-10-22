@@ -22,15 +22,28 @@ def debug_print(message):
 class YouTubeTranscriptFetcher:
     """A class to fetch and cache YouTube transcripts"""
     
-    def __init__(self, cache_dir="cache", webshare_username=None, webshare_password=None):
+    def __init__(self, cache_dir="cache", webshare_username=None, webshare_password=None, use_webshare=False):
         debug_print(f"DEBUG: YouTubeTranscriptFetcher.__init__ called")
         debug_print(f"DEBUG: webshare_username passed: {webshare_username}")
         debug_print(f"DEBUG: webshare_password passed: {'***' if webshare_password else None}")
+        debug_print(f"DEBUG: use_webshare passed: {use_webshare}")
+        
         self.cache_dir = cache_dir
+        self.use_webshare = use_webshare
         self.webshare_username = webshare_username
         self.webshare_password = webshare_password
+        
+        # Validate Webshare configuration
+        if self.use_webshare:
+            if not self.webshare_username or not self.webshare_password:
+                raise ValueError("USE_WEBSHARE is enabled but WEBSHARE_USERNAME or WEBSHARE_PASSWORD is missing")
+            debug_print(f"DEBUG: Webshare proxy enabled with username: {self.webshare_username}")
+        else:
+            debug_print(f"DEBUG: Webshare proxy disabled, using direct connections")
+        
         debug_print(f"DEBUG: Final webshare_username: {self.webshare_username}")
         debug_print(f"DEBUG: Final webshare_password: {'***' if self.webshare_password else None}")
+        debug_print(f"DEBUG: Final use_webshare: {self.use_webshare}")
         self._ensure_cache_dir()
     
     def set_cache_dir(self, cache_dir):
@@ -56,8 +69,8 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: [{video_id}] No cached data found, proceeding to fetch")
         
         # Try concurrent requests if using Webshare proxies, fallback to single request
-        debug_print(f"DEBUG: [{video_id}] Webshare credentials available: {bool(self.webshare_username and self.webshare_password)}")
-        if self.webshare_username and self.webshare_password:
+        debug_print(f"DEBUG: [{video_id}] Webshare enabled: {self.use_webshare}")
+        if self.use_webshare:
             debug_print(f"DEBUG: [{video_id}] Using Webshare proxies, attempting concurrent requests")
             try:
                 transcript_data = self._get_transcript_concurrent(video_id)
@@ -112,7 +125,7 @@ class YouTubeTranscriptFetcher:
             'Cache-Control': 'max-age=0'
         }
         
-        if self.webshare_username and self.webshare_password:
+        if self.use_webshare:
             api = YouTubeTranscriptApi(
                 proxy_config=WebshareProxyConfig(
                     proxy_username=self.webshare_username,

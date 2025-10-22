@@ -25,7 +25,8 @@ app = Flask(__name__)
 transcript_fetcher = YouTubeTranscriptFetcher(
     cache_dir=os.getenv('CACHE_DIR', 'cache'),
     webshare_username=os.getenv('WEBSHARE_USERNAME'),
-    webshare_password=os.getenv('WEBSHARE_PASSWORD')
+    webshare_password=os.getenv('WEBSHARE_PASSWORD'),
+    use_webshare=os.getenv('USE_WEBSHARE', 'false').lower() == 'true'
 )
 
 @app.route('/transcript/<video_id>', methods=['GET'])
