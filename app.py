@@ -22,8 +22,11 @@ load_dotenv()
 app = Flask(__name__)
 
 # Initialize the transcript fetcher with settings from environment
+# Expand environment variables in CACHE_DIR (e.g., $TMP/cache -> /tmp/cache)
+cache_dir = os.path.expandvars(os.getenv('CACHE_DIR', 'cache'))
+
 transcript_fetcher = YouTubeTranscriptFetcher(
-    cache_dir=os.getenv('CACHE_DIR', 'cache'),
+    cache_dir=cache_dir,
     webshare_username=os.getenv('WEBSHARE_USERNAME'),
     webshare_password=os.getenv('WEBSHARE_PASSWORD'),
     use_webshare=os.getenv('USE_WEBSHARE', 'false').lower() == 'true'
