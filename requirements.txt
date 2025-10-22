@@ -7,6 +7,12 @@ youtube-transcript-api>=1.2.2
 # Environment variable management
 python-dotenv>=1.0.0
 
+# Production WSGI server
+gunicorn>=21.0.0
+
+# Async worker support for mobile optimization
+gevent>=23.0.0
+
 # Standard library dependencies (included with Python)
 # os - built-in  
 # json - built-in
