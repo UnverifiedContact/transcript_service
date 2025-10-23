@@ -1,7 +1,14 @@
 import re
 import os
 import time
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs
+
+
+def debug_print(message):
+    """Print debug message with timestamp"""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
+    print(f"[{timestamp}] {message}")
 
 
 def extract_youtube_id(value: str) -> str | None:

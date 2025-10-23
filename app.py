@@ -27,7 +27,7 @@ transcript_fetcher = YouTubeTranscriptFetcher(
     cache_dir=cache_dir,
     webshare_username=os.getenv('WEBSHARE_USERNAME'),
     webshare_password=os.getenv('WEBSHARE_PASSWORD'),
-    use_webshare=os.getenv('USE_WEBSHARE', 'false').lower() == 'true'
+    max_concurrent_requests=int(os.getenv('MAX_CONCURRENT_REQUESTS', '2'))
 )
 
 @app.route('/transcript/<video_id>', methods=['GET'])
@@ -52,22 +52,37 @@ def get_transcript(video_id):
                 'message': 'Video ID must be exactly 11 characters'
             }), 400
         
-        # Check if we have cached data first
-        cached_data = transcript_fetcher._load_from_cache(video_id)
-        if cached_data is not None:
-            duration = round((time.time() - start_time) * 1000, 2)  # Convert to milliseconds
-            return jsonify({
-                'video_id': video_id,
-                'transcript': cached_data,
-                'cached': True,
-                'retrieval_duration_ms': duration
-            })
+        # Check for force query parameter
+        force = request.args.get('force', 'false').lower() == 'true'
         
-        # If no cache, try to fetch from YouTube
+        # Check if we have cached data first (unless force refresh is requested)
+        if not force:
+            cached_data = transcript_fetcher._load_from_cache(video_id)
+            if cached_data is not None:
+                duration = round((time.time() - start_time) * 1000, 2)  # Convert to milliseconds
+                return jsonify({
+                    'video_id': video_id,
+                    'transcript': cached_data,
+                    'cached': True,
+                    'retrieval_duration_ms': duration
+                })
+        
+        # If no cache or force refresh, try to fetch from YouTube
         # Construct a YouTube URL from the video ID
         youtube_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        transcript_data = transcript_fetcher.get_transcript(youtube_url)
+        # Create a new fetcher instance with force setting for this request
+        if force:
+            request_fetcher = YouTubeTranscriptFetcher(
+                cache_dir=cache_dir,
+                webshare_username=os.getenv('WEBSHARE_USERNAME'),
+                webshare_password=os.getenv('WEBSHARE_PASSWORD'),
+                max_concurrent_requests=int(os.getenv('MAX_CONCURRENT_REQUESTS', '2')),
+                force=True
+            )
+            transcript_data = request_fetcher.get_transcript(youtube_url)
+        else:
+            transcript_data = transcript_fetcher.get_transcript(youtube_url)
         
         duration = round((time.time() - start_time) * 1000, 2)  # Convert to milliseconds
         return jsonify({
