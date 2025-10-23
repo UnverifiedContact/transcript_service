@@ -343,9 +343,7 @@ class TestYouTubeTranscriptFetcher:
         
         video_id = "test_video_123"
         
-        # Ensure the cache directory structure exists
-        video_cache_dir = os.path.join(self.test_cache_dir, video_id)
-        os.makedirs(video_cache_dir, exist_ok=True)
+        # No need to create directory structure for flat cache
         
         result = fetcher.generate_flattened(test_data, video_id)
         
@@ -356,7 +354,7 @@ class TestYouTubeTranscriptFetcher:
         assert "Thanks for asking" in result
         
         # Verify file was created
-        flattened_path = os.path.join(self.test_cache_dir, video_id, 'flattened.txt')
+        flattened_path = os.path.join(self.test_cache_dir, f'{video_id}_flattened.txt')
         assert os.path.exists(flattened_path)
         
         # Verify file content
@@ -406,11 +404,11 @@ class TestYouTubeTranscriptFetcher:
         video_id = "test_video_456"
         cache_path = fetcher._get_cache_path(video_id)
         
-        expected_path = os.path.join(self.test_cache_dir, video_id, 'transcript.json')
+        expected_path = os.path.join(self.test_cache_dir, f'{video_id}.json')
         assert cache_path == expected_path
         
-        # Test directory creation
-        assert os.path.exists(os.path.dirname(cache_path))
+        # Test that cache directory exists
+        assert os.path.exists(self.test_cache_dir)
         
         return "Cache directory structure tests passed"
     
