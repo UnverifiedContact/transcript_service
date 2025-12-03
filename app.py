@@ -52,8 +52,8 @@ def get_transcript(video_id):
                 'message': 'Video ID must be exactly 11 characters'
             }), 400
         
-        # Check for force query parameter
-        force = request.args.get('force', 'false').lower() == 'true'
+        # Check for force query parameter (accepts '1' or 'true')
+        force = request.args.get('force', '0').lower() in ['1', 'true']
         
         # Check if we have cached data first (unless force refresh is requested)
         if not force:
