@@ -4,14 +4,48 @@ import os
 import json
 import concurrent.futures
 import time
+import threading
+import queue
+import socket
 from datetime import datetime
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 from utils import extract_youtube_id, debug_print
 
+# Set default socket timeout to prevent indefinite hangs
+socket.setdefaulttimeout(45)
+
+# Monkey-patch requests to add default timeout
+# This ensures all HTTP requests have a timeout, even if youtube_transcript_api doesn't set one
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    
+    # Store original request method
+    _original_request = requests.Session.request
+    
+    def _request_with_timeout(self, *args, **kwargs):
+        """Wrapper to add default timeout to all requests"""
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 45  # Default timeout in seconds
+        return _original_request(self, *args, **kwargs)
+    
+    # Patch the Session.request method
+    requests.Session.request = _request_with_timeout
+    debug_print("DEBUG: Patched requests.Session.request to add default 45s timeout")
+except ImportError:
+    # requests not available, skip patching
+    pass
+except Exception as e:
+    debug_print(f"DEBUG: Failed to patch requests: {e}")
+
 
 class YouTubeTranscriptFetcher:
     """A class to fetch and cache YouTube transcripts"""
+    
+    # Default timeout for API calls (in seconds)
+    API_TIMEOUT = 45
     
     def __init__(
         self, 
@@ -34,6 +68,46 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: Final webshare_username: {self.webshare_username}")
         debug_print(f"DEBUG: Final webshare_password: {'***' if self.webshare_password else None}")
         self._ensure_cache_dir()
+    
+    def _fetch_with_timeout(self, api, video_id, timeout=None):
+        """
+        Wrapper to fetch transcript with a timeout to prevent hanging.
+        Uses concurrent.futures for more robust timeout handling.
+        
+        Args:
+            api: YouTubeTranscriptApi instance
+            video_id: Video ID to fetch
+            timeout: Timeout in seconds (defaults to API_TIMEOUT)
+        
+        Returns:
+            Transcript data
+        
+        Raises:
+            TimeoutError: If the fetch operation times out
+            Exception: Any exception raised by the API call
+        """
+        if timeout is None:
+            timeout = self.API_TIMEOUT
+        
+        def fetch_operation():
+            """The actual fetch operation"""
+            return api.fetch(video_id, languages=['en'])
+        
+        # Use ThreadPoolExecutor for better timeout handling
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(fetch_operation)
+            try:
+                result = future.result(timeout=timeout)
+                debug_print(f"DEBUG: [{video_id}] API fetch completed successfully")
+                return result
+            except concurrent.futures.TimeoutError:
+                debug_print(f"DEBUG: [{video_id}] API fetch timed out after {timeout} seconds")
+                # Cancel the future (though it may continue running)
+                future.cancel()
+                raise TimeoutError(f"Transcript fetch timed out after {timeout} seconds")
+            except Exception as e:
+                debug_print(f"DEBUG: [{video_id}] API fetch failed with error: {str(e)[:200]}")
+                raise
     
     def set_cache_dir(self, cache_dir):
         self.cache_dir = cache_dir
@@ -73,7 +147,9 @@ class YouTubeTranscriptFetcher:
                     debug_print(f"DEBUG: [{video_id}] Single request with proxies succeeded!")
                 except Exception as e2:
                     debug_print(f"DEBUG: [{video_id}] Single request with proxies failed: {e2}")
-                    raise ValueError("Failed to download subtitles for this video")
+                    # Preserve original error message, especially for timeouts
+                    error_msg = str(e2) if e2 else "Failed to download subtitles for this video"
+                    raise ValueError(f"Failed to download subtitles for this video: {error_msg}")
         else:
             debug_print(f"DEBUG: [{video_id}] No Webshare credentials, using single request without proxies")
             try:
@@ -81,7 +157,9 @@ class YouTubeTranscriptFetcher:
                 debug_print(f"DEBUG: [{video_id}] Single request without proxies succeeded!")
             except Exception as e:
                 debug_print(f"DEBUG: [{video_id}] Single request without proxies failed: {e}")
-                raise ValueError("Failed to download subtitles for this video")
+                # Preserve original error message, especially for timeouts
+                error_msg = str(e) if e else "Failed to download subtitles for this video"
+                raise ValueError(f"Failed to download subtitles for this video: {error_msg}")
         
         transcript_data_dict = [{'text': entry.text, 'start': entry.start, 'duration': entry.duration} for entry in transcript_data]
         
@@ -118,15 +196,24 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: [{video_id}] Using User-Agent: {headers['User-Agent'][:50]}...")
         
         if self.webshare_username and self.webshare_password:
+            # WebshareProxyConfig automatically appends '-rotate' to the username
+            # So if username already ends with '-rotate', we need to strip it
+            proxy_username = self.webshare_username
+            if proxy_username.endswith('-rotate'):
+                proxy_username = proxy_username[:-7]  # Remove '-rotate' suffix
+                debug_print(f"DEBUG: [{video_id}] Stripped '-rotate' suffix from username: {self.webshare_username} -> {proxy_username}")
+            
             api = YouTubeTranscriptApi(
                 proxy_config=WebshareProxyConfig(
-                    proxy_username=self.webshare_username,
+                    proxy_username=proxy_username,
                     proxy_password=self.webshare_password
                 )
             )
         else:
             api = YouTubeTranscriptApi()
-        return api.fetch(video_id, languages=['en'])
+        
+        # Use timeout wrapper to prevent hanging
+        return self._fetch_with_timeout(api, video_id)
     
     def _get_transcript_concurrent(self, video_id):
         """Try multiple concurrent requests to get transcript"""
@@ -138,12 +225,17 @@ class YouTubeTranscriptFetcher:
         
         # Use a queue to communicate results between threads
         result_queue = queue.Queue()
+        error_queue = queue.Queue()  # Queue to track failures
         stop_event = threading.Event()
+        completed_count = threading.Lock()
+        completed_threads = [0]  # Use list to allow modification in nested function
         
         def worker_thread(attempt_id):
             """Worker thread that runs a single attempt"""
             if stop_event.is_set():
                 debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} cancelled before starting")
+                with completed_count:
+                    completed_threads[0] += 1
                 return
                 
             try:
@@ -154,9 +246,15 @@ class YouTubeTranscriptFetcher:
                     stop_event.set()  # Signal other threads to stop
                 else:
                     debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} completed but result was None or cancelled")
+                    error_queue.put(f"Attempt {attempt_id} returned None")
             except Exception as e:
+                error_msg = str(e)[:200]
                 if not stop_event.is_set():
-                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
+                    debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {error_msg}")
+                    error_queue.put(f"Attempt {attempt_id} failed: {error_msg}")
+            finally:
+                with completed_count:
+                    completed_threads[0] += 1
         
         # Start all worker threads
         threads = []
@@ -168,14 +266,45 @@ class YouTubeTranscriptFetcher:
         
         debug_print(f"DEBUG: [{video_id}] Waiting for first successful result from {self.max_concurrent_requests} requests...")
         
+        # Use API_TIMEOUT + 5 seconds buffer to account for thread startup
+        concurrent_timeout = self.API_TIMEOUT + 5
+        start_time = time.time()
+        
         try:
-            # Wait for first successful result with timeout
-            result = result_queue.get(timeout=60)  # 60 second timeout
-            debug_print(f"DEBUG: [{video_id}] SUCCESS! Concurrent request succeeded, stopping remaining {self.max_concurrent_requests-1} attempts")
-            return result
-        except queue.Empty:
-            debug_print(f"DEBUG: [{video_id}] Timeout waiting for result from {self.max_concurrent_requests} concurrent attempts")
-            raise ValueError("All concurrent attempts failed or timed out")
+            # Poll for results with shorter intervals to check if all threads have failed
+            while True:
+                elapsed = time.time() - start_time
+                remaining_timeout = max(0.1, concurrent_timeout - elapsed)
+                
+                # Check for successful result
+                try:
+                    result = result_queue.get(timeout=min(0.5, remaining_timeout))
+                    debug_print(f"DEBUG: [{video_id}] SUCCESS! Concurrent request succeeded, stopping remaining {self.max_concurrent_requests-1} attempts")
+                    return result
+                except queue.Empty:
+                    pass
+                
+                # Check if all threads have completed and all failed
+                with completed_count:
+                    if completed_threads[0] >= self.max_concurrent_requests:
+                        # All threads completed, check if we have any errors
+                        if result_queue.empty():
+                            # All threads failed, collect error messages
+                            errors = []
+                            while not error_queue.empty():
+                                try:
+                                    errors.append(error_queue.get_nowait())
+                                except queue.Empty:
+                                    break
+                            error_summary = "; ".join(errors[:3])  # Limit to first 3 errors
+                            debug_print(f"DEBUG: [{video_id}] All {self.max_concurrent_requests} concurrent attempts failed")
+                            raise ValueError(f"All concurrent attempts failed: {error_summary}")
+                
+                # Check if we've exceeded the timeout
+                if elapsed >= concurrent_timeout:
+                    debug_print(f"DEBUG: [{video_id}] Timeout waiting for result from {self.max_concurrent_requests} concurrent attempts after {concurrent_timeout} seconds")
+                    raise ValueError(f"All concurrent attempts failed or timed out after {concurrent_timeout} seconds")
+                
         finally:
             # Signal all threads to stop
             stop_event.set()
@@ -187,19 +316,17 @@ class YouTubeTranscriptFetcher:
     
     def _single_transcript_attempt(self, video_id, attempt_id):
         """Single transcript fetch attempt with fresh proxy connection and user-agent rotation"""
-        import time
         import random
         
         debug_print(f"DEBUG: [{video_id}] Starting attempt {attempt_id}")
         
         try:
-            # Add exponential backoff with jitter
-            base_delay = 2 ** attempt_id  # 2, 4, 8 seconds
-            jitter = random.uniform(0, 1)  # Add randomness
-            delay = base_delay + jitter
-            
-            debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} waiting {delay:.2f}s before request...")
-            time.sleep(delay)
+            # Small random delay to stagger concurrent requests (0-0.5 seconds)
+            # This helps avoid all requests hitting at exactly the same time
+            import time
+            small_delay = random.uniform(0, 0.5)
+            if small_delay > 0:
+                time.sleep(small_delay)
             
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} creating fresh API instance...")
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} using Webshare username: {self.webshare_username}")
@@ -218,20 +345,29 @@ class YouTubeTranscriptFetcher:
             
             # Use proxy connection only
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} trying with Webshare proxy...")
+            # WebshareProxyConfig automatically appends '-rotate' to the username
+            # So if username already ends with '-rotate', we need to strip it
+            proxy_username = self.webshare_username
+            if proxy_username.endswith('-rotate'):
+                proxy_username = proxy_username[:-7]  # Remove '-rotate' suffix
+                debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} stripped '-rotate' suffix: {self.webshare_username} -> {proxy_username}")
+            
             api = YouTubeTranscriptApi(
                 proxy_config=WebshareProxyConfig(
-                    proxy_username=self.webshare_username,
+                    proxy_username=proxy_username,
                     proxy_password=self.webshare_password
                 )
             )
             
-            transcript_data = api.fetch(video_id, languages=['en'])
+            # Use timeout wrapper to prevent hanging
+            transcript_data = self._fetch_with_timeout(api, video_id)
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} SUCCESS with proxy! Got {len(transcript_data)} segments")
             return transcript_data
                 
         except Exception as e:
             debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {str(e)[:200]}")
-            return None
+            # Re-raise the exception so it can be properly handled upstream
+            raise
     
     def _get_cache_path(self, video_id):
         """Get the cache file path for a video ID"""

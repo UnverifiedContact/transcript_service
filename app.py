@@ -98,6 +98,12 @@ def get_transcript(video_id):
             'message': str(e)
         }), 404
     
+    except TimeoutError as e:
+        return jsonify({
+            'error': 'Request timeout',
+            'message': str(e)
+        }), 504
+    
     except Exception as e:
         return jsonify({
             'error': 'Internal server error',

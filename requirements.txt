@@ -2,7 +2,8 @@
 Flask>=3.0.0
 
 # YouTube transcript dependencies
-youtube-transcript-api>=1.2.2
+# PINNED VERSION - DO NOT USE >= TO PREVENT UNAUTHORIZED UPDATES
+youtube-transcript-api==1.2.3
 
 # Environment variable management
 python-dotenv>=1.0.0
