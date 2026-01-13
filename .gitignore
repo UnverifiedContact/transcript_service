@@ -26,3 +26,8 @@ Thumbs.db
 *.log
 logs/
 app.pid
+
+# Test files and cache
+test_cache/
+test_*.py
+test_*.sh
