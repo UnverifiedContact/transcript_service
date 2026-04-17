@@ -46,6 +46,8 @@ class YouTubeTranscriptFetcher:
     
     # Default timeout for API calls (in seconds)
     API_TIMEOUT = 45
+    # Short timeout for credential validation (in seconds)
+    CREDENTIAL_VALIDATION_TIMEOUT = 20
     
     def __init__(
         self, 
@@ -69,6 +71,67 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: Final webshare_password: {'***' if self.webshare_password else None}")
         self._ensure_cache_dir()
     
+    def _validate_credentials(self):
+        """
+        Validate proxy credentials by making a quick test request.
+        This fails fast if credentials are invalid instead of waiting for full timeout.
+        
+        Raises:
+            ValueError: If credentials are invalid or authentication fails
+        """
+        if not self.webshare_username or not self.webshare_password:
+            return  # No credentials to validate
+        
+        debug_print("DEBUG: Validating proxy credentials...")
+        
+        # Use a simple test video ID for validation (short video)
+        test_video_id = "jNQXAC9IVRw"  # "Me at the zoo" - a very short video
+        
+        try:
+            # Prepare proxy username (strip '-rotate' if present)
+            proxy_username = self.webshare_username
+            if proxy_username.endswith('-rotate'):
+                proxy_username = proxy_username[:-7]
+            
+            api = YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                    proxy_username=proxy_username,
+                    proxy_password=self.webshare_password
+                )
+            )
+            
+            # Make a quick validation request with short timeout
+            def validation_operation():
+                return api.fetch(test_video_id, languages=['en'])
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(validation_operation)
+                try:
+                    future.result(timeout=self.CREDENTIAL_VALIDATION_TIMEOUT)
+                    debug_print("DEBUG: Credential validation succeeded")
+                except concurrent.futures.TimeoutError:
+                    # Timeout during validation likely means auth failure
+                    future.cancel()
+                    raise ValueError("Proxy authentication failed: credentials appear to be invalid (timeout during validation)")
+                except Exception as e:
+                    error_str = str(e).lower()
+                    # Check for common authentication error indicators
+                    if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                        raise ValueError(f"Proxy authentication failed: {str(e)}")
+                    # For other errors during validation, we'll let the actual request handle it
+                    # but log it for debugging
+                    debug_print(f"DEBUG: Credential validation encountered error (may be non-auth related): {str(e)[:200]}")
+        except ValueError:
+            # Re-raise ValueError (authentication errors)
+            raise
+        except Exception as e:
+            # Wrap other exceptions in ValueError for consistency
+            error_str = str(e).lower()
+            if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                raise ValueError(f"Proxy authentication failed: {str(e)}")
+            # If it's not clearly an auth error, let it pass (might be network issue)
+            debug_print(f"DEBUG: Credential validation error (non-auth): {str(e)[:200]}")
+    
     def _fetch_with_timeout(self, api, video_id, timeout=None):
         """
         Wrapper to fetch transcript with a timeout to prevent hanging.
@@ -84,6 +147,7 @@ class YouTubeTranscriptFetcher:
         
         Raises:
             TimeoutError: If the fetch operation times out
+            ValueError: If authentication fails
             Exception: Any exception raised by the API call
         """
         if timeout is None:
@@ -106,7 +170,11 @@ class YouTubeTranscriptFetcher:
                 future.cancel()
                 raise TimeoutError(f"Transcript fetch timed out after {timeout} seconds")
             except Exception as e:
+                error_str = str(e).lower()
                 debug_print(f"DEBUG: [{video_id}] API fetch failed with error: {str(e)[:200]}")
+                # Check for authentication errors and fail fast
+                if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                    raise ValueError(f"Proxy authentication failed: {str(e)}")
                 raise
     
     def set_cache_dir(self, cache_dir):
@@ -135,18 +203,33 @@ class YouTubeTranscriptFetcher:
         # Try concurrent requests if using Webshare proxies, fallback to single request
         debug_print(f"DEBUG: [{video_id}] Webshare credentials available: {bool(self.webshare_username and self.webshare_password)}")
         if self.webshare_username and self.webshare_password:
+            # Validate credentials first to fail fast if they're wrong
+            try:
+                self._validate_credentials()
+            except ValueError as auth_error:
+                debug_print(f"DEBUG: [{video_id}] Credential validation failed: {auth_error}")
+                raise  # Re-raise immediately - don't proceed with invalid credentials
+            
             debug_print(f"DEBUG: [{video_id}] Using Webshare proxies, attempting concurrent requests")
             try:
                 transcript_data = self._get_transcript_concurrent(video_id)
                 debug_print(f"DEBUG: [{video_id}] Concurrent requests succeeded!")
             except Exception as e:
                 debug_print(f"DEBUG: [{video_id}] Concurrent requests failed, trying single request: {e}")
+                # Check if it's an auth error - if so, fail immediately
+                error_str = str(e).lower()
+                if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                    raise ValueError(f"Proxy authentication failed: {str(e)}")
                 try:
                     debug_print(f"DEBUG: [{video_id}] Attempting single request with Webshare proxies...")
                     transcript_data = self._get_transcript_single(video_id)
                     debug_print(f"DEBUG: [{video_id}] Single request with proxies succeeded!")
                 except Exception as e2:
                     debug_print(f"DEBUG: [{video_id}] Single request with proxies failed: {e2}")
+                    # Check if it's an auth error - if so, fail immediately
+                    error_str2 = str(e2).lower()
+                    if any(indicator in error_str2 for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                        raise ValueError(f"Proxy authentication failed: {str(e2)}")
                     # Preserve original error message, especially for timeouts
                     error_msg = str(e2) if e2 else "Failed to download subtitles for this video"
                     raise ValueError(f"Failed to download subtitles for this video: {error_msg}")
@@ -247,9 +330,27 @@ class YouTubeTranscriptFetcher:
                 else:
                     debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} completed but result was None or cancelled")
                     error_queue.put(f"Attempt {attempt_id} returned None")
+            except ValueError as e:
+                # Check if it's an authentication error - if so, put it in a special queue for immediate failure
+                error_str = str(e).lower()
+                if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                    # Put auth error in result_queue with special marker to fail immediately
+                    result_queue.put(('AUTH_ERROR', str(e)))
+                    stop_event.set()  # Signal other threads to stop
+                else:
+                    error_msg = str(e)[:200]
+                    if not stop_event.is_set():
+                        debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {error_msg}")
+                        error_queue.put(f"Attempt {attempt_id} failed: {error_msg}")
             except Exception as e:
                 error_msg = str(e)[:200]
-                if not stop_event.is_set():
+                # Check for authentication errors in exception message
+                error_str = str(e).lower()
+                if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                    # Put auth error in result_queue with special marker to fail immediately
+                    result_queue.put(('AUTH_ERROR', str(e)))
+                    stop_event.set()  # Signal other threads to stop
+                elif not stop_event.is_set():
                     debug_print(f"DEBUG: [{video_id}] Attempt {attempt_id} FAILED with error: {error_msg}")
                     error_queue.put(f"Attempt {attempt_id} failed: {error_msg}")
             finally:
@@ -276,9 +377,13 @@ class YouTubeTranscriptFetcher:
                 elapsed = time.time() - start_time
                 remaining_timeout = max(0.1, concurrent_timeout - elapsed)
                 
-                # Check for successful result
+                # Check for successful result or auth error
                 try:
                     result = result_queue.get(timeout=min(0.5, remaining_timeout))
+                    # Check if this is an authentication error marker
+                    if isinstance(result, tuple) and result[0] == 'AUTH_ERROR':
+                        debug_print(f"DEBUG: [{video_id}] Authentication error detected, failing immediately")
+                        raise ValueError(result[1])
                     debug_print(f"DEBUG: [{video_id}] SUCCESS! Concurrent request succeeded, stopping remaining {self.max_concurrent_requests-1} attempts")
                     return result
                 except queue.Empty:
@@ -291,13 +396,21 @@ class YouTubeTranscriptFetcher:
                         if result_queue.empty():
                             # All threads failed, collect error messages
                             errors = []
+                            auth_error_found = False
                             while not error_queue.empty():
                                 try:
-                                    errors.append(error_queue.get_nowait())
+                                    error_msg = error_queue.get_nowait()
+                                    errors.append(error_msg)
+                                    # Check if any error is an authentication error
+                                    error_str = str(error_msg).lower()
+                                    if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
+                                        auth_error_found = True
                                 except queue.Empty:
                                     break
                             error_summary = "; ".join(errors[:3])  # Limit to first 3 errors
                             debug_print(f"DEBUG: [{video_id}] All {self.max_concurrent_requests} concurrent attempts failed")
+                            if auth_error_found:
+                                raise ValueError(f"Proxy authentication failed: {error_summary}")
                             raise ValueError(f"All concurrent attempts failed: {error_summary}")
                 
                 # Check if we've exceeded the timeout
