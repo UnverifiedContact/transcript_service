@@ -46,9 +46,6 @@ class YouTubeTranscriptFetcher:
     
     # Default timeout for API calls (in seconds)
     API_TIMEOUT = 45
-    # Short timeout for credential validation (in seconds)
-    CREDENTIAL_VALIDATION_TIMEOUT = 20
-    
     def __init__(
         self, 
         cache_dir="cache", 
@@ -70,67 +67,6 @@ class YouTubeTranscriptFetcher:
         debug_print(f"DEBUG: Final webshare_username: {self.webshare_username}")
         debug_print(f"DEBUG: Final webshare_password: {'***' if self.webshare_password else None}")
         self._ensure_cache_dir()
-    
-    def _validate_credentials(self):
-        """
-        Validate proxy credentials by making a quick test request.
-        This fails fast if credentials are invalid instead of waiting for full timeout.
-        
-        Raises:
-            ValueError: If credentials are invalid or authentication fails
-        """
-        if not self.webshare_username or not self.webshare_password:
-            return  # No credentials to validate
-        
-        debug_print("DEBUG: Validating proxy credentials...")
-        
-        # Use a simple test video ID for validation (short video)
-        test_video_id = "jNQXAC9IVRw"  # "Me at the zoo" - a very short video
-        
-        try:
-            # Prepare proxy username (strip '-rotate' if present)
-            proxy_username = self.webshare_username
-            if proxy_username.endswith('-rotate'):
-                proxy_username = proxy_username[:-7]
-            
-            api = YouTubeTranscriptApi(
-                proxy_config=WebshareProxyConfig(
-                    proxy_username=proxy_username,
-                    proxy_password=self.webshare_password
-                )
-            )
-            
-            # Make a quick validation request with short timeout
-            def validation_operation():
-                return api.fetch(test_video_id, languages=['en'])
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(validation_operation)
-                try:
-                    future.result(timeout=self.CREDENTIAL_VALIDATION_TIMEOUT)
-                    debug_print("DEBUG: Credential validation succeeded")
-                except concurrent.futures.TimeoutError:
-                    # Timeout during validation likely means auth failure
-                    future.cancel()
-                    raise ValueError("Proxy authentication failed: credentials appear to be invalid (timeout during validation)")
-                except Exception as e:
-                    error_str = str(e).lower()
-                    # Check for common authentication error indicators
-                    if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
-                        raise ValueError(f"Proxy authentication failed: {str(e)}")
-                    # For other errors during validation, we'll let the actual request handle it
-                    # but log it for debugging
-                    debug_print(f"DEBUG: Credential validation encountered error (may be non-auth related): {str(e)[:200]}")
-        except ValueError:
-            # Re-raise ValueError (authentication errors)
-            raise
-        except Exception as e:
-            # Wrap other exceptions in ValueError for consistency
-            error_str = str(e).lower()
-            if any(indicator in error_str for indicator in ['407', '401', 'unauthorized', 'authentication', 'proxy', 'forbidden', '403']):
-                raise ValueError(f"Proxy authentication failed: {str(e)}")
-            # If it's not clearly an auth error, let it pass (might be network issue)
-            debug_print(f"DEBUG: Credential validation error (non-auth): {str(e)[:200]}")
     
     def _fetch_with_timeout(self, api, video_id, timeout=None):
         """
@@ -203,13 +139,6 @@ class YouTubeTranscriptFetcher:
         # Try concurrent requests if using Webshare proxies, fallback to single request
         debug_print(f"DEBUG: [{video_id}] Webshare credentials available: {bool(self.webshare_username and self.webshare_password)}")
         if self.webshare_username and self.webshare_password:
-            # Validate credentials first to fail fast if they're wrong
-            try:
-                self._validate_credentials()
-            except ValueError as auth_error:
-                debug_print(f"DEBUG: [{video_id}] Credential validation failed: {auth_error}")
-                raise  # Re-raise immediately - don't proceed with invalid credentials
-            
             debug_print(f"DEBUG: [{video_id}] Using Webshare proxies, attempting concurrent requests")
             try:
                 transcript_data = self._get_transcript_concurrent(video_id)
